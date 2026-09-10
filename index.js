@@ -87,12 +87,21 @@ client.once('ready', async () => {
     }
 });
 
+// Detailed audio event logging
 player.events.on('playerError', (queue, error) => {
     console.error(`❌ Player Error:`, error);
 });
 
 player.events.on('error', (queue, error) => {
     console.error(`❌ Queue Error:`, error);
+});
+
+player.events.on('playerStart', (queue, track) => {
+    console.log(`🎶 Started playing: ${track.title} by ${track.author}`);
+});
+
+player.events.on('emptyQueue', (queue) => {
+    console.log(`📭 Queue is empty, leaving voice channel.`);
 });
 
 client.on('interactionCreate', async (interaction) => {
