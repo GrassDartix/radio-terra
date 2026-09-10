@@ -3,19 +3,17 @@ const dns = require('node:dns');
 const http = require('node:http');
 const { webcrypto } = require('node:crypto');
 
-// Polyfill global crypto for packages that expect webcrypto globally
 if (!globalThis.crypto) {
     globalThis.crypto = webcrypto;
 }
 
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { Player } = require('discord-player');
-const { DefaultExtractors } = require('@discord-player/extractor');
+const { YoutubeExtractor } = require('@discord-player/extractor');
 
-// Forces IPv4 routing to prevent Discord connection timeouts
 dns.setDefaultResultOrder('ipv4first');
 
-// Simple HTTP server to satisfy Render's web service port requirement
+// Simple HTTP server for Render port requirement
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Radio Terra bot is active and running!');
@@ -34,22 +32,20 @@ const client = new Client({
 
 const player = new Player(client);
 
-// In-memory stores for channel configurations per guild ID
 const lockedChannels = new Map();
 const reportChannels = new Map();
 
-// Load extractors immediately so they are ready when the bot boots up
 async function initializePlayer() {
-    await player.extractors.loadMulti(DefaultExtractors);
+    // Register YouTube extractor explicitly
+    await player.extractors.register(YoutubeExtractor, {});
     console.log('Audio extractors loaded successfully.');
 }
 initializePlayer();
 
-// Define all slash commands with permissions where applicable
 const commands = [
     new SlashCommandBuilder()
         .setName('play')
-        .setDescription('Play a song immediately, pausing current track and resuming queue after')
+        .setDescription('Play a song immediately')
         .addStringOption(option =>
             option.setName('query')
                 .setDescription('The song title or URL')
@@ -70,107 +66,52 @@ const commands = [
     new SlashCommandBuilder().setName('queue').setDescription('View the upcoming songs'),
     new SlashCommandBuilder()
         .setName('setchannel')
-        .setDescription('Lock bot outputs to this text channel (Admin/Mod only)')
+        .setDescription('Lock bot outputs to this text channel')
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
     new SlashCommandBuilder()
         .setName('setreportchannel')
-        .setDescription('Set the channel where explicit/bad song reports are sent (Admin/Mod only)')
+        .setDescription('Set channel for song reports')
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
     new SlashCommandBuilder()
         .setName('report')
-        .setDescription('Report the currently playing song for explicit or inappropriate content')
+        .setDescription('Report currently playing song')
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
     console.log(`Bot logged in as ${client.user.tag}!`);
-
-    // Register slash commands globally
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
-        console.log('Registering slash commands...');
-        await rest.put(
-            Routes.applicationCommands(client.user.id),
-            { body: commands }
-        );
+        await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
         console.log('Slash commands registered successfully.');
     } catch (error) {
         console.error('Failed to register slash commands:', error);
     }
 });
 
-// Detailed audio event logging to catch streaming/player failures
 player.events.on('playerError', (queue, error) => {
-    console.error(`❌ Player Error for track ${queue.currentTrack?.title}:`, error);
+    console.error(`❌ Player Error:`, error);
 });
 
 player.events.on('error', (queue, error) => {
-    console.error(`❌ General Queue Error:`, error);
+    console.error(`❌ Queue Error:`, error);
 });
 
-// Handle Slash Command Interactions
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
     const guildId = interaction.guildId;
-
-    const lockedChannelId = lockedChannels.get(guildId);
-    if (lockedChannelId && !['setchannel', 'setreportchannel'].includes(interaction.commandName) && interaction.channelId !== lockedChannelId) {
-        return interaction.reply({ 
-            content: `❌ The bot is locked to <#${lockedChannelId}> for commands!`, 
-            flags: 64 
-        });
-    }
-
     const voiceChannel = interaction.member?.voice?.channel;
     const queue = player.nodes.get(guildId);
-
-    if (interaction.commandName === 'setchannel') {
-        lockedChannels.set(guildId, interaction.channelId);
-        return interaction.reply(`🔒 Music command channel successfully locked to <#${interaction.channelId}>!`);
-    }
-
-    if (interaction.commandName === 'setreportchannel') {
-        reportChannels.set(guildId, interaction.channelId);
-        return interaction.reply(`🛡️ Explicit song reports will now be sent to <#${interaction.channelId}>!`);
-    }
-
-    if (interaction.commandName === 'report') {
-        if (!queue || !queue.currentTrack) {
-            return interaction.reply({ content: 'No music is currently playing to report.', flags: 64 });
-        }
-
-        const reportChannelId = reportChannels.get(guildId);
-        const currentTrack = queue.currentTrack;
-
-        const reportMessage = `🚨 **Explicit Content Report**\n` +
-            `• **Reported By:** ${interaction.user} (${interaction.user.tag})\n` +
-            `• **Song Title:** ${currentTrack.title}\n` +
-            `• **Author:** ${currentTrack.author}\n` +
-            `• **URL:** ${currentTrack.url}`;
-
-        if (reportChannelId) {
-            try {
-                const reportChannel = await client.channels.fetch(reportChannelId);
-                if (reportChannel) {
-                    await reportChannel.send(reportMessage);
-                }
-            } catch (err) {
-                console.error('Failed to send message to report channel:', err);
-            }
-        }
-
-        return interaction.reply({ content: '⚠️ The currently playing song has been reported to the moderators. Thank you!', flags: 64 });
-    }
-
-    if (!voiceChannel && ['play', 'add', 'skip', 'stop', 'pause', 'resume'].includes(interaction.commandName)) {
-        return interaction.reply({ content: 'You must be in a voice channel first!', flags: 64 }); 
-    }
 
     if (interaction.commandName === 'play') {
         const query = interaction.options.getString('query');
         await interaction.deferReply();
 
         try {
+            if (!voiceChannel) {
+                return interaction.editReply('You must be in a voice channel first!');
+            }
+
             const searchResult = await player.search(query, {
                 requestedBy: interaction.user
             });
@@ -199,7 +140,7 @@ client.on('interactionCreate', async (interaction) => {
 
             return interaction.editReply(`⚡ Interrupted and playing now: **${track.title}** by **${track.author}**`);
         } catch (error) {
-            console.error('Play command execution error:', error);
+            console.error('Play error:', error);
             return interaction.editReply('An error occurred while trying to play the track.');
         }
     }
@@ -209,6 +150,10 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.deferReply();
 
         try {
+            if (!voiceChannel) {
+                return interaction.editReply('You must be in a voice channel first!');
+            }
+
             const searchResult = await player.search(query, {
                 requestedBy: interaction.user
             });
@@ -235,46 +180,40 @@ client.on('interactionCreate', async (interaction) => {
             queue.addTrack(track);
             return interaction.editReply(`➕ Added to queue: **${track.title}** by **${track.author}**`);
         } catch (error) {
-            console.error('Add command execution error:', error);
+            console.error('Add error:', error);
             return interaction.editReply('An error occurred while trying to add the track.');
         }
     }
 
     if (['skip', 'stop', 'pause', 'resume', 'queue'].includes(interaction.commandName)) {
         if (!queue || !queue.currentTrack) {
-            return interaction.reply('No music is currently playing.');
+            return interaction.reply({ content: 'No music is currently playing.', flags: 64 });
         }
 
         if (interaction.commandName === 'skip') {
             queue.node.skip();
             return interaction.reply('⏭️ Skipped to the next track!');
         }
-
         if (interaction.commandName === 'stop') {
             queue.delete();
             return interaction.reply('🛑 Playback stopped and queue cleared.');
         }
-
         if (interaction.commandName === 'pause') {
             queue.node.setPaused(true);
             return interaction.reply('⏸️ Paused the music.');
         }
-
         if (interaction.commandName === 'resume') {
             queue.node.setPaused(false);
             return interaction.reply('▶️ Resumed the music.');
         }
-
         if (interaction.commandName === 'queue') {
             const current = queue.currentTrack;
             const tracks = queue.tracks.toArray();
-            
             let str = `**Now Playing:** ${current.title}\n\n**Upcoming:**\n`;
             if (tracks.length === 0) {
                 str += 'No upcoming songs.';
             } else {
                 str += tracks.slice(0, 10).map((t, i) => `${i + 1}. ${t.title}`).join('\n');
-                if (tracks.length > 10) str += `\n*...and ${tracks.length - 10} more.*`;
             }
             return interaction.reply(str);
         }
