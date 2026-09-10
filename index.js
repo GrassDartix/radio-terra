@@ -9,7 +9,7 @@ if (!globalThis.crypto) {
 
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { Player } = require('discord-player');
-const { YoutubeExtractor } = require('@discord-player/extractor');
+const { DefaultExtractors } = require('@discord-player/extractor');
 
 dns.setDefaultResultOrder('ipv4first');
 
@@ -36,8 +36,7 @@ const lockedChannels = new Map();
 const reportChannels = new Map();
 
 async function initializePlayer() {
-    // Register YouTube extractor explicitly
-    await player.extractors.register(YoutubeExtractor, {});
+    await player.extractors.loadMulti(DefaultExtractors);
     console.log('Audio extractors loaded successfully.');
 }
 initializePlayer();
