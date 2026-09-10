@@ -1,7 +1,13 @@
 require('dotenv').config();
 const dns = require('node:dns');
 const http = require('node:http');
-const crypto = require('node:crypto');
+const { webcrypto } = require('node:crypto');
+
+// Polyfill global crypto for packages that expect webcrypto globally
+if (!globalThis.crypto) {
+    globalThis.crypto = webcrypto;
+}
+
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { Player } = require('discord-player');
 const { DefaultExtractors } = require('@discord-player/extractor');
