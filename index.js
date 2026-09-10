@@ -1,11 +1,22 @@
 require('dotenv').config();
 const dns = require('node:dns');
+const http = require('node:http');
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { Player } = require('discord-player');
 const { DefaultExtractors } = require('@discord-player/extractor');
 
 // Forces IPv4 routing to prevent Discord connection timeouts
 dns.setDefaultResultOrder('ipv4first');
+
+// Simple HTTP server to satisfy Render's web service port requirement
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Radio Terra bot is active and running!');
+});
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`HTTP server is listening on port ${PORT}`);
+});
 
 const client = new Client({
     intents: [
@@ -90,7 +101,6 @@ client.on('interactionCreate', async (interaction) => {
 
     const guildId = interaction.guildId;
 
-    // Optional Check: Enforce locked channel if one is set (exempting config commands)
     const lockedChannelId = lockedChannels.get(guildId);
     if (lockedChannelId && !['setchannel', 'setreportchannel'].includes(interaction.commandName) && interaction.channelId !== lockedChannelId) {
         return interaction.reply({ 
@@ -102,19 +112,16 @@ client.on('interactionCreate', async (interaction) => {
     const voiceChannel = interaction.member?.voice?.channel;
     const queue = player.nodes.get(guildId);
 
-    // Handle /setchannel command (Admin/Mod restricted)
     if (interaction.commandName === 'setchannel') {
         lockedChannels.set(guildId, interaction.channelId);
         return interaction.reply(`🔒 Music command channel successfully locked to <#${interaction.channelId}>!`);
     }
 
-    // Handle /setreportchannel command (Admin/Mod restricted)
     if (interaction.commandName === 'setreportchannel') {
         reportChannels.set(guildId, interaction.channelId);
         return interaction.reply(`🛡️ Explicit song reports will now be sent to <#${interaction.channelId}>!`);
     }
 
-    // Handle /report command (Sends report of current song to report channel)
     if (interaction.commandName === 'report') {
         if (!queue || !queue.currentTrack) {
             return interaction.reply({ content: 'No music is currently playing to report.', ephemeral: true });
@@ -143,12 +150,10 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: '⚠️ The currently playing song has been reported to the moderators. Thank you!', ephemeral: true });
     }
 
-    // Voice channel check required for playback commands
     if (!voiceChannel && ['play', 'add', 'skip', 'stop', 'pause', 'resume'].includes(interaction.commandName)) {
         return interaction.reply({ content: 'You must be in a voice channel first!', ephemeral: true }); 
     }
 
-    // Handle /play command
     if (interaction.commandName === 'play') {
         const query = interaction.options.getString('query');
         await interaction.deferReply();
@@ -187,7 +192,6 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
-    // Handle /add command
     if (interaction.commandName === 'add') {
         const query = interaction.options.getString('query');
         await interaction.deferReply();
@@ -224,7 +228,6 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
-    // Playback control commands
     if (['skip', 'stop', 'pause', 'resume', 'queue'].includes(interaction.commandName)) {
         if (!queue || !queue.currentTrack) {
             return interaction.reply('No music is currently playing.');
