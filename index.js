@@ -91,9 +91,14 @@ client.once('ready', async () => {
     }
 });
 
-// Audio event logging
-player.events.on('playerError', (queue, error) => console.error(`Audio playback error: ${error.message}`));
-player.events.on('error', (queue, error) => console.error(`Queue connection error: ${error.message}`));
+// Detailed audio event logging to catch streaming/player failures
+player.events.on('playerError', (queue, error) => {
+    console.error(`❌ Player Error for track ${queue.currentTrack?.title}:`, error);
+});
+
+player.events.on('error', (queue, error) => {
+    console.error(`❌ General Queue Error:`, error);
+});
 
 // Handle Slash Command Interactions
 client.on('interactionCreate', async (interaction) => {
@@ -105,7 +110,7 @@ client.on('interactionCreate', async (interaction) => {
     if (lockedChannelId && !['setchannel', 'setreportchannel'].includes(interaction.commandName) && interaction.channelId !== lockedChannelId) {
         return interaction.reply({ 
             content: `❌ The bot is locked to <#${lockedChannelId}> for commands!`, 
-            ephemeral: true 
+            flags: 64 
         });
     }
 
@@ -124,7 +129,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.commandName === 'report') {
         if (!queue || !queue.currentTrack) {
-            return interaction.reply({ content: 'No music is currently playing to report.', ephemeral: true });
+            return interaction.reply({ content: 'No music is currently playing to report.', flags: 64 });
         }
 
         const reportChannelId = reportChannels.get(guildId);
@@ -147,11 +152,11 @@ client.on('interactionCreate', async (interaction) => {
             }
         }
 
-        return interaction.reply({ content: '⚠️ The currently playing song has been reported to the moderators. Thank you!', ephemeral: true });
+        return interaction.reply({ content: '⚠️ The currently playing song has been reported to the moderators. Thank you!', flags: 64 });
     }
 
     if (!voiceChannel && ['play', 'add', 'skip', 'stop', 'pause', 'resume'].includes(interaction.commandName)) {
-        return interaction.reply({ content: 'You must be in a voice channel first!', ephemeral: true }); 
+        return interaction.reply({ content: 'You must be in a voice channel first!', flags: 64 }); 
     }
 
     if (interaction.commandName === 'play') {
@@ -187,7 +192,7 @@ client.on('interactionCreate', async (interaction) => {
 
             return interaction.editReply(`⚡ Interrupted and playing now: **${track.title}** by **${track.author}**`);
         } catch (error) {
-            console.error(error);
+            console.error('Play command execution error:', error);
             return interaction.editReply('An error occurred while trying to play the track.');
         }
     }
@@ -223,7 +228,7 @@ client.on('interactionCreate', async (interaction) => {
             queue.addTrack(track);
             return interaction.editReply(`➕ Added to queue: **${track.title}** by **${track.author}**`);
         } catch (error) {
-            console.error(error);
+            console.error('Add command execution error:', error);
             return interaction.editReply('An error occurred while trying to add the track.');
         }
     }
